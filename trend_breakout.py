@@ -122,7 +122,7 @@ def print_signals_one_line(row):
 # -----------------------------
 if __name__ == "__main__":
     tickers = [
-        "AAPL", "MSFT", "TSLA", "NVDA", "AMZN", "GOOGL", "META", "NFLX", "AVGO", 
+        "AAPL", "MSFT", "TSLA", "NVDA", "AMZN", "GOOGL", "META", "NFLX", "AVGO",
         "INTC", "AMD", "PYPL", "ADBE", "CRM", "ORCL", "SOFI", "UBER",
         "COIN", "HOOD", "GRAB", "JPM", "V", "CRWD", "TSM", "SNOW", "WMT", "HIMS", "ASTS", "OKLO", "TEM", "AFRM", "GS", "VOO", "COST", "VGT", "IWY", "IYW",
         "CRSP", "PLTR", "SHOP", "PINS", "DDOG", "MRNA","MELI", "CRCL", "GTLB", "QBTS", "QUBT", "CRWV", "IONQ", "APPLD", "UPST", "AI", "CVNA", "SMCI", 

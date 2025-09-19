@@ -239,7 +239,7 @@ def print_colored_results(df: pd.DataFrame):
 # -----------------------------
 if __name__ == "__main__":
     tickers = [
-        "AAPL", "MSFT", "TSLA", "NVDA", "AMZN", "GOOGL", "META", "NFLX", "AVGO", "CRSP",
+        "AAPL", "MSFT", "TSLA", "NVDA", "AMZN", "GOOGL", "META", "NFLX", "AVGO", "CRSP", "GS",
         "INTC", "AMD", "PYPL", "ADBE", "CRM", "ORCL", "SOFI", "UBER",
         "HOOD", "GRAB", "JPM", "V", "CRWD", "TSM", "SNOW", "QQQ", "PLTR"
     ]
