@@ -2,17 +2,19 @@ import yfinance as yf
 import pandas as pd
 from colorama import Fore, Style, init
 from datetime import datetime
+import os
 
 # Initialize colorama
 init(autoreset=True)
 
 # -----------------------------
-# Define options you want to track
+# Define options to track
 # -----------------------------
 # Format: { "SYMBOL": [ (expiry, strike, type), ... ] }
 # type: "call" or "put"
 OPTIONS_TO_TRACK = {
     "NVDA": [("2026-01-16", 200, "call"), ("2026-01-16", 200, "put")],
+    "AAPL": [("2026-01-16", 200, "put")]
 }
 
 # -----------------------------
@@ -27,69 +29,58 @@ def safe_round(value, decimals=2):
         return None
 
 # -----------------------------
-# Helper: fetch option premium
+# Fetch option premium
 # -----------------------------
 def fetch_option_data(symbol: str, expiry: str, strike: float, option_type: str = "call"):
     try:
         ticker = yf.Ticker(symbol)
         if expiry not in ticker.options:
-            return {"symbol": symbol, "expiry": expiry, "strike": strike, "type": option_type, "error": "Expiry not available"}
+            return None
 
         opt_chain = ticker.option_chain(expiry)
         options = opt_chain.calls if option_type.lower() == "call" else opt_chain.puts
-
         row = options[options["strike"] == strike]
+
         if row.empty:
-            return {"symbol": symbol, "expiry": expiry, "strike": strike, "type": option_type, "error": "Strike not found"}
+            return None
 
         row = row.iloc[0]
-
         last_price = safe_round(row.get("lastPrice"))
-        bid = safe_round(row.get("bid"))
-        ask = safe_round(row.get("ask"))
-        mid = safe_round(((row.get("bid") or 0) + (row.get("ask") or 0)) / 2) if row.get("bid") and row.get("ask") else None
-        iv = safe_round(row.get("impliedVolatility"), 3)
-        oi = int(row.get("openInterest", 0)) if not pd.isna(row.get("openInterest")) else None
-
-        return {
-            "symbol": symbol,
-            "expiry": expiry,
-            "strike": strike,
-            "type": option_type,
-            "last_price": last_price,
-            "bid": bid,
-            "ask": ask,
-            "mid": mid,
-            "iv": iv,
-            "open_interest": oi,
-        }
-    except Exception as e:
-        return {"symbol": symbol, "expiry": expiry, "strike": strike, "type": option_type, "error": str(e)}
+        return last_price
+    except:
+        return None
 
 # -----------------------------
 # Main loop
 # -----------------------------
 if __name__ == "__main__":
-    results = []
+    folder = "__options_tracker"
+    os.makedirs(folder, exist_ok=True)
+    csv_file = os.path.join(folder, "options_tracker_history.csv")
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    # Prepare new row data
+    new_data = {}
     for sym, contracts in OPTIONS_TO_TRACK.items():
         for expiry, strike, option_type in contracts:
-            row = fetch_option_data(sym, expiry, strike, option_type)
-            results.append(row)
-
-            if "error" in row:
-                print(Fore.RED + f"{row['symbol']} {row['expiry']} {row['strike']} ({row['type']}): ERROR - {row['error']}")
+            key = f"{sym}-{option_type.upper()}-{expiry.replace('-', '')}"
+            price = fetch_option_data(sym, expiry, strike, option_type)
+            new_data[key] = price
+            if price is None:
+                print(Fore.RED + f"{key}: PRICE NOT FOUND")
             else:
-                print(
-                    Fore.GREEN
-                    + f"{row['symbol']:5} | Exp: {row['expiry']} | Strike: {row['strike']:6} | "
-                    f"Type: {row['type']:4} | Last: {row['last_price'] or 'N/A'} | "
-                    f"Bid: {row['bid'] or 'N/A'} | Ask: {row['ask'] or 'N/A'} | "
-                    f"Mid: {row['mid'] or 'N/A'} | IV: {row['iv'] or 'N/A'} | OI: {row['open_interest'] or 'N/A'}"
-                )
+                print(Fore.GREEN + f"{key}: {price}")
 
-    # Save to CSV for history with timestamped filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"options_tracker_output_{timestamp}.csv"
-    df = pd.DataFrame(results)
-    df.to_csv(filename, index=False)
-    print(Style.BRIGHT + Fore.YELLOW + f"\nSaved results to {filename}")
+    # Load existing CSV or create new
+    if os.path.exists(csv_file):
+        df = pd.read_csv(csv_file, index_col=0)
+    else:
+        df = pd.DataFrame()
+
+    # Add new column for today
+    df[today_str] = pd.Series(new_data)
+
+    # Save back to CSV
+    df.to_csv(csv_file)
+    print(Style.BRIGHT + Fore.YELLOW + f"\nUpdated historical tracker: {csv_file}")
