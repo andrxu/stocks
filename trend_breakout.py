@@ -35,6 +35,7 @@ SIGNAL_DESCRIPTIONS = {
     "ma50": "50-day moving average (medium-term trend level).",
     "ma200": "200-day moving average (long-term trend level).",
     "rsi": "14-day Relative Strength Index (momentum oscillator).",
+    "pe": "Price-to-Earnings ratio (trailing or forward if available).",
 }
 
 # Weights for each signal to compute a final score (0-100). Adjust these to tune
@@ -60,7 +61,8 @@ def print_rules_summary():
     print("  - Signal weights (contribute to 0-100 score):", flush=True)
     for sig, w in SIGNAL_WEIGHTS.items():
         desc = SIGNAL_DESCRIPTIONS.get(sig, "")
-        print(f"    - {sig}: weight={w} -> {desc}", flush=True)
+        # Print the description in white for readability
+        print(Fore.WHITE + f"    - {sig}: weight={w} -> {desc}", flush=True)
     print("  - Numeric fields: latest_price, ma20, ma50, ma200, rsi", flush=True)
     print("", flush=True)
 
@@ -116,6 +118,18 @@ def check_trend_breakout(symbol: str):
         latest = df.iloc[-1]
         prev = df.iloc[-2]
 
+        # Attempt to get P/E ratio from yfinance Ticker.info
+        pe_value = "N/A"
+        try:
+            t = yf.Ticker(symbol)
+            info = t.info if hasattr(t, 'info') else {}
+            pe = info.get('trailingPE') or info.get('forwardPE')
+            if pe is not None:
+                pe_value = round(float(pe), 2)
+        except Exception:
+            # leave pe_value as 'N/A' on any error
+            pe_value = "N/A"
+
         # Technical signals
         above_mas = (latest["Close"] > latest["MA50"]) and (latest["Close"] > latest["MA200"])
         volume_confirm = latest["Volume"] > latest["Vol20"]
@@ -159,7 +173,8 @@ def check_trend_breakout(symbol: str):
             "ma20": round(float(latest["MA20"]), 2),
             "ma50": round(float(latest["MA50"]), 2),
             "ma200": round(float(latest["MA200"]), 2),
-            "rsi": round(float(latest["RSI"]), 2)
+            "rsi": round(float(latest["RSI"]), 2),
+            "pe": pe_value,
         }
 
         return result
@@ -210,6 +225,7 @@ def print_signals_one_line(row):
         f"Price: {row.get('latest_price')}, "
         f"MA20: {row.get('ma20')}, MA50: {row.get('ma50')}, MA200: {row.get('ma200')}, "
         f"RSI: {row.get('rsi')}"
+        f", P/E: {format_metric(row.get('pe'), 2)}"
     ) + Style.RESET_ALL, flush=True)
 
 # -----------------------------
