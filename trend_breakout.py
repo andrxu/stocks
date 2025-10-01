@@ -19,6 +19,24 @@ def format_metric(value, decimals=2):
 # -----------------------------
 # Technical Analysis
 # -----------------------------
+# Plain-English descriptions for the signals and numeric fields used below.
+# These can be used for inline help, documentation, or to annotate output.
+SIGNAL_DESCRIPTIONS = {
+    "ready_momentum": "All key conditions for a momentum breakout are met - price above MA50 & MA200, volume confirms, RSI healthy, MA50 rising, MA20>MA50, golden cross and breakout.",
+    "above_mas": "Price is above both the 50-day and 200-day moving averages.",
+    "volume_confirm": "Today's volume exceeds the 20-day average volume.",
+    "rsi_ok": "RSI (14) is between 50 and 70 — upward momentum without overbought conditions.",
+    "ma50_trending_up": "50-day moving average is higher than it was 10 trading days ago.",
+    "breakout": "Today's close is above the previous 20-day high — breakout above recent range.",
+    "early_momentum": "20-day moving average is above the 50-day moving average (short-term > medium-term).",
+    "golden_cross": "50-day moving average is above the 200-day moving average (bullish crossover).",
+    "latest_price": "Latest closing price.",
+    "ma20": "20-day moving average (short-term trend level).",
+    "ma50": "50-day moving average (medium-term trend level).",
+    "ma200": "200-day moving average (long-term trend level).",
+    "rsi": "14-day Relative Strength Index (momentum oscillator).",
+}
+
 def check_trend_breakout(symbol: str):
     try:
         df = yf.download(symbol, period="1y", interval="1d", auto_adjust=False, progress=False)
@@ -48,7 +66,24 @@ def check_trend_breakout(symbol: str):
 
         df = df.dropna(subset=["MA20", "MA50", "MA200", "RSI", "Vol20"])
         if df.empty:
-            return {"symbol": symbol, "error": "Not enough history"}
+            # Not enough history: return sensible defaults instead of an error so callers
+            # (and the one-line printer) can continue processing tickers like CRWV.
+            return {
+                "symbol": symbol,
+                "ready_momentum": False,
+                "above_mas": False,
+                "volume_confirm": False,
+                "rsi_ok": False,
+                "ma50_trending_up": False,
+                "breakout": False,
+                "early_momentum": False,
+                "golden_cross": False,
+                "latest_price": "N/A",
+                "ma20": "N/A",
+                "ma50": "N/A",
+                "ma200": "N/A",
+                "rsi": "N/A",
+            }
 
         latest = df.iloc[-1]
         prev = df.iloc[-2]
@@ -97,7 +132,7 @@ def print_signals_one_line(row):
     # Color coding
     if row["ready_momentum"]:
         color = Fore.GREEN
-    elif row.get("above_mas", False):
+    elif row.get("above_mas", False) :
         color = Fore.YELLOW
     else:
         color = Fore.WHITE
@@ -122,10 +157,10 @@ def print_signals_one_line(row):
 # -----------------------------
 if __name__ == "__main__":
     tickers = [
-        "AAPL", "MSFT", "TSLA", "NVDA", "AMZN", "GOOGL", "META", "NFLX", "AVGO",
+        "AAPL", "MSFT", "TSLA", "NVDA", "AMZN", "GOOGL", "META", "NFLX", "AVGO", "ELF", "CELH",
         "INTC", "AMD", "PYPL", "ADBE", "CRM", "ORCL", "SOFI", "UBER",
         "COIN", "HOOD", "GRAB", "JPM", "V", "CRWD", "TSM", "SNOW", "WMT", "HIMS", "ASTS", "OKLO", "TEM", "AFRM", "GS", "VOO", "COST", "VGT", "IWY", "IYW",
-        "CRSP", "PLTR", "SHOP", "PINS", "DDOG", "MRNA","MELI", "CRCL", "GTLB", "QBTS", "QUBT", "CRWV", "IONQ", "APPLD", "UPST", "AI", "CVNA", "SMCI", 
+        "CRSP", "PLTR", "SHOP", "PINS", "DDOG", "MRNA","MELI", "CRCL", "GTLB", "QBTS", "QUBT", "CRWV", "IONQ", "APP", "UPST", "AI", "CVNA", "SMCI", 
     ]
 
     all_rows = []
