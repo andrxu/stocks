@@ -37,6 +37,19 @@ SIGNAL_DESCRIPTIONS = {
     "rsi": "14-day Relative Strength Index (momentum oscillator).",
 }
 
+# Weights for each signal to compute a final score (0-100). Adjust these to tune
+# how strict the scoring is. Total should sum to 100 for intuitive percent scores.
+SIGNAL_WEIGHTS = {
+    "above_mas": 20,
+    "volume_confirm": 15,
+    "rsi_ok": 10,
+    "ma50_trending_up": 10,
+    "early_momentum": 10,
+    "golden_cross": 15,
+    "breakout": 20,
+}
+
+
 def check_trend_breakout(symbol: str):
     try:
         df = yf.download(symbol, period="1y", interval="1d", auto_adjust=False, progress=False)
@@ -97,12 +110,29 @@ def check_trend_breakout(symbol: str):
         early_momentum = latest["MA20"] > latest["MA50"]
         golden_cross = latest["MA50"] > latest["MA200"]
 
-        # Ready for momentum breakout
-        ready_momentum = all([above_mas, volume_confirm, rsi_ok, ma50_trending_up, early_momentum, golden_cross, breakout])
+        # Compute weighted score (0-100)
+        signals = {
+            "above_mas": bool(above_mas),
+            "volume_confirm": bool(volume_confirm),
+            "rsi_ok": bool(rsi_ok),
+            "ma50_trending_up": bool(ma50_trending_up),
+            "early_momentum": bool(early_momentum),
+            "golden_cross": bool(golden_cross),
+            "breakout": bool(breakout),
+        }
 
-        return {
+        total_weight = sum(SIGNAL_WEIGHTS.values())
+        score_raw = sum(SIGNAL_WEIGHTS[k] for k, v in signals.items() if v)
+        score = int(round((score_raw / total_weight) * 100)) if total_weight > 0 else 0
+
+        # Determine readiness using a threshold; tune this threshold to be more/less strict
+        READY_THRESHOLD = 70
+        ready_momentum = score >= READY_THRESHOLD
+
+        result = {
             "symbol": symbol,
             "ready_momentum": ready_momentum,
+            "score": score,
             "above_mas": above_mas,
             "volume_confirm": volume_confirm,
             "rsi_ok": rsi_ok,
@@ -117,6 +147,8 @@ def check_trend_breakout(symbol: str):
             "rsi": round(float(latest["RSI"]), 2)
         }
 
+        return result
+
     except Exception as e:
         return {"symbol": symbol, "error": str(e)}
 
@@ -129,28 +161,41 @@ def print_signals_one_line(row):
         print(Fore.RED + f"{row['symbol']}: ERROR - {error_msg}")
         return
 
-    # Color coding
-    if row["ready_momentum"]:
-        color = Fore.GREEN
-    elif row.get("above_mas", False) :
-        color = Fore.YELLOW
+    # Color coding by numeric score (if present) to provide more granularity
+    score = row.get("score")
+    if isinstance(score, int):
+        if score >= 80:
+            color = Fore.GREEN
+        elif score >= 60:
+            color = Fore.YELLOW
+        elif score >= 40:
+            color = Fore.CYAN
+        else:
+            color = Fore.WHITE
     else:
-        color = Fore.WHITE
+        # Fallback to previous behavior
+        if row.get("ready_momentum"):
+            color = Fore.GREEN
+        elif row.get("above_mas", False):
+            color = Fore.YELLOW
+        else:
+            color = Fore.WHITE
 
     print(color + (
         f"{row['symbol']}: "
-        f"MomentumReady: {row['ready_momentum']}, "
-        f"AboveMA: {row['above_mas']}, "
-        f"VolConfirm: {row['volume_confirm']}, "
-        f"RSI_OK: {row['rsi_ok']}, "
-        f"MA50Up: {row['ma50_trending_up']}, "
-        f"Breakout: {row['breakout']}, "
-        f"EarlyMom: {row['early_momentum']}, "
-        f"GoldenCross: {row['golden_cross']}, "
-        f"Price: {row['latest_price']}, "
-        f"MA20: {row['ma20']}, MA50: {row['ma50']}, MA200: {row['ma200']}, "
-        f"RSI: {row['rsi']}"
-    ) + Style.RESET_ALL)
+        f"Score: {score if score is not None else 'N/A'}, "
+        f"MomentumReady: {row.get('ready_momentum')}, "
+        f"AboveMA: {row.get('above_mas')}, "
+        f"VolConfirm: {row.get('volume_confirm')}, "
+        f"RSI_OK: {row.get('rsi_ok')}, "
+        f"MA50Up: {row.get('ma50_trending_up')}, "
+        f"Breakout: {row.get('breakout')}, "
+        f"EarlyMom: {row.get('early_momentum')}, "
+        f"GoldenCross: {row.get('golden_cross')}, "
+        f"Price: {row.get('latest_price')}, "
+        f"MA20: {row.get('ma20')}, MA50: {row.get('ma50')}, MA200: {row.get('ma200')}, "
+        f"RSI: {row.get('rsi')}"
+    ) + Style.RESET_ALL, flush=True)
 
 # -----------------------------
 # Main
@@ -167,5 +212,14 @@ if __name__ == "__main__":
     for sym in sorted(tickers):
         row = check_trend_breakout(sym)
         all_rows.append(row)
+
+    # Sort by score descending (missing scores go last), then by symbol ascending
+    def sort_key(r):
+        s = r.get('score')
+        # Use -1 for missing/NA to send them to the bottom
+        return (-(s if isinstance(s, int) else -1), r.get('symbol', ''))
+
+    all_rows_sorted = sorted(all_rows, key=sort_key)
+    for row in all_rows_sorted:
         print_signals_one_line(row)
 
