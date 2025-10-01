@@ -201,14 +201,32 @@ def print_signals_one_line(row):
 # Main
 # -----------------------------
 if __name__ == "__main__":
-    tickers = [
-        "AAPL", "ADBE", "AFRM", "AI", "AMD", "AMZN", "APP", "ASTS", "AVGO", "CELH",
-        "COIN", "COST", "CRCL", "CRM", "CRSP", "CRWD", "CRWV", "CVNA", "DDOG", "ELF",
-        "GOOGL", "GRAB", "GTLB", "GS", "HIMS", "HOOD", "INTC", "IONQ", "IWY", "IYW",
-        "JPM", "MELI", "META", "MRNA", "MSFT", "NET", "NFLX", "NVDA", "OKLO", "ORCL",
-        "PINS", "PLTR", "PYPL", "QBTS", "QUBT", "SHOP", "SMCI", "SOFI", "SNOW", "TEM",
-        "TSM", "TSLA", "UBER", "UPST", "V", "VGT", "VOO", "WMT",
-    ]
+    # Require tickers.yml to exist and be valid; abort on any error to avoid
+    # running with an unintended default set.
+    import sys, os
+    try:
+        import yaml
+    except Exception:
+        print("Missing dependency: PyYAML is required to load tickers.yml. Install with: pip install PyYAML", flush=True)
+        sys.exit(2)
+
+    yml_path = os.path.join(os.path.dirname(__file__), "tickers.yml")
+    if not os.path.exists(yml_path):
+        print(f"Missing configuration file: {yml_path}", flush=True)
+        sys.exit(2)
+
+    with open(yml_path, "r") as f:
+        data = yaml.safe_load(f)
+
+    if not (isinstance(data, dict) and "tickers" in data and isinstance(data["tickers"], list)):
+        print("Invalid tickers.yml: expected a mapping with a 'tickers' list", flush=True)
+        sys.exit(2)
+
+    # Clean and validate tickers
+    tickers = [str(x).strip() for x in data["tickers"] if x is not None and str(x).strip()]
+    if not tickers:
+        print("tickers.yml contains no valid tickers", flush=True)
+        sys.exit(2)
 
     all_rows = []
     for sym in sorted(tickers):
