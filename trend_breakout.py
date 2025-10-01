@@ -202,10 +202,12 @@ def print_signals_one_line(row):
 # -----------------------------
 if __name__ == "__main__":
     tickers = [
-        "AAPL", "MSFT", "TSLA", "NVDA", "AMZN", "GOOGL", "META", "NFLX", "AVGO", "ELF", "CELH","NET",
-        "INTC", "AMD", "PYPL", "ADBE", "CRM", "ORCL", "SOFI", "UBER",
-        "COIN", "HOOD", "GRAB", "JPM", "V", "CRWD", "TSM", "SNOW", "WMT", "HIMS", "ASTS", "OKLO", "TEM", "AFRM", "GS", "VOO", "COST", "VGT", "IWY", "IYW",
-        "CRSP", "PLTR", "SHOP", "PINS", "DDOG", "MRNA","MELI", "CRCL", "GTLB", "QBTS", "QUBT", "CRWV", "IONQ", "APP", "UPST", "AI", "CVNA", "SMCI", 
+        "AAPL", "ADBE", "AFRM", "AI", "AMD", "AMZN", "APP", "ASTS", "AVGO", "CELH",
+        "COIN", "COST", "CRCL", "CRM", "CRSP", "CRWD", "CRWV", "CVNA", "DDOG", "ELF",
+        "GOOGL", "GRAB", "GTLB", "GS", "HIMS", "HOOD", "INTC", "IONQ", "IWY", "IYW",
+        "JPM", "MELI", "META", "MRNA", "MSFT", "NET", "NFLX", "NVDA", "OKLO", "ORCL",
+        "PINS", "PLTR", "PYPL", "QBTS", "QUBT", "SHOP", "SMCI", "SOFI", "SNOW", "TEM",
+        "TSM", "TSLA", "UBER", "UPST", "V", "VGT", "VOO", "WMT",
     ]
 
     all_rows = []
