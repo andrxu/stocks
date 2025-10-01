@@ -110,27 +110,89 @@ def optimize_withdrawals(start_balance, current_age, life_exp, growth_rate, targ
 # Main
 # -----------------------------
 if __name__ == "__main__":
-    start_balance = float(input("Enter starting IRA balance: "))
-    current_age = int(input("Enter your current age: "))
-    life_exp = int(input("Enter expected age (life expectancy): "))
-    growth_rate = float(input("Expected annual return rate (e.g., 0.05 for 5%): "))
+    # Short description of what this script does
+    print("RMD optimization calculator")
+    print("Computes optimized annual withdrawals (meeting RMDs) to minimize lifetime tax given tax brackets and an expected return rate.")
+    print("Press Enter at any prompt to accept the shown default value.")
+    print("")
+
+    def input_default(prompt, cast, default):
+        """Prompt the user; if they press Enter, return the default (casted)."""
+        raw = input(f"{prompt} [{default}]: ")
+        if raw.strip() == '':
+            return cast(default)
+        return cast(raw)
+
+    # Defaults: start_balance=1_000_000, current_age=73, life_exp=93, growth_rate=0.05, target_bracket=3
+    start_balance = input_default("Enter starting IRA balance", float, 1000000)
+    current_age = input_default("Enter your current age", int, 73)
+    life_exp = input_default("Enter expected age (life expectancy)", int, 93)
+    growth_rate = input_default("Expected annual return rate (e.g., 0.05 for 5%)", float, 0.05)
 
     print("\n2025 Single Filer Brackets:")
     for i, (low, high, rate) in enumerate(TAX_BRACKETS, 1):
         print(f"{i}: {low}-{high if high != float('inf') else '+'} at {rate*100:.1f}%")
-    target_bracket = int(input("Choose a bracket number to target (or 0 for no target): "))
+    target_bracket = input_default("Choose a bracket number to target (or 0 for no target)", int, 3)
 
     withdrawals = optimize_withdrawals(start_balance, current_age, life_exp, growth_rate, target_bracket)
 
-    print("\nAge    LifeFactor     RMD Required   Withdrawal       Tax   Bracket     EndBalance")
-    print("-"*95)
+    # Prepare formatted table with consistent right-aligned numeric columns
+    headers = ["Age", "LifeFactor", "RMD Required", "Withdrawal", "Tax", "Bracket", "EndBalance"]
+    # Determine column widths by scanning values (use formatted strings)
+    rows_fmt = []
     total_tax = 0
     for age, w, tax, bracket, bal in withdrawals:
         lf = life_factor(age, 0, 0, 0)
-        rmd_required = bal / lf
-        end_balance = round_balance(bal - w + w*(1+growth_rate))
+        rmd_required = bal / lf if lf != 0 else 0
+        # Compute end balance after withdrawal and growth, then round for display
+        end_bal_raw = max(0, bal - w)
+        end_balance = round_balance(end_bal_raw * (1 + growth_rate))
         total_tax += tax
-        print(f"{age:3}    {lf:7}     {rmd_required:12,.2f}   {w:10,.2f}   {tax:10,.2f}    {bracket:3}    {end_balance:10,.2f}")
+        rows_fmt.append({
+            "age": f"{age:3}",
+            "lf": f"{lf:7}",
+            "rmd": f"{rmd_required:12,.2f}",
+            "w": f"{w:10,.2f}",
+            "tax": f"{tax:10,.2f}",
+            "bracket": f"{bracket:3}",
+            "end": f"{end_balance:12,.2f}",
+        })
+
+    # Compute column widths
+    col_widths = {
+        "age": max(len(headers[0]), max(len(r["age"]) for r in rows_fmt)),
+        "lf": max(len(headers[1]), max(len(r["lf"]) for r in rows_fmt)),
+        "rmd": max(len(headers[2]), max(len(r["rmd"]) for r in rows_fmt)),
+        "w": max(len(headers[3]), max(len(r["w"]) for r in rows_fmt)),
+        "tax": max(len(headers[4]), max(len(r["tax"]) for r in rows_fmt)),
+        "bracket": max(len(headers[5]), max(len(r["bracket"]) for r in rows_fmt)),
+        "end": max(len(headers[6]), max(len(r["end"]) for r in rows_fmt)),
+    }
+
+    # Print header
+    header_line = (
+        f"{headers[0].rjust(col_widths['age'])}  "
+        f"{headers[1].rjust(col_widths['lf'])}  "
+        f"{headers[2].rjust(col_widths['rmd'])}  "
+        f"{headers[3].rjust(col_widths['w'])}  "
+        f"{headers[4].rjust(col_widths['tax'])}  "
+        f"{headers[5].rjust(col_widths['bracket'])}  "
+        f"{headers[6].rjust(col_widths['end'])}"
+    )
+    print("\n" + header_line)
+    print("-" * len(header_line))
+
+    for r in rows_fmt:
+        line = (
+            f"{r['age'].rjust(col_widths['age'])}  "
+            f"{r['lf'].rjust(col_widths['lf'])}  "
+            f"{r['rmd'].rjust(col_widths['rmd'])}  "
+            f"{r['w'].rjust(col_widths['w'])}  "
+            f"{r['tax'].rjust(col_widths['tax'])}  "
+            f"{r['bracket'].rjust(col_widths['bracket'])}  "
+            f"{r['end'].rjust(col_widths['end'])}"
+        )
+        print(line)
     print(f"\nTotal tax paid over life expectancy: {total_tax:,.2f}")
     total_withdrawals = sum(w for _, w, _, _, _ in withdrawals)
     final_balance = withdrawals[-1][4]
