@@ -49,6 +49,21 @@ SIGNAL_WEIGHTS = {
     "breakout": 20,
 }
 
+# Readiness threshold used to mark 'ready_momentum' when score >= threshold
+READY_THRESHOLD = 70
+
+
+def print_rules_summary():
+    """Print a short summary of scoring rules and signal descriptions."""
+    print("Scoring rules:", flush=True)
+    print(f"  - Ready threshold: score >= {READY_THRESHOLD}", flush=True)
+    print("  - Signal weights (contribute to 0-100 score):", flush=True)
+    for sig, w in SIGNAL_WEIGHTS.items():
+        desc = SIGNAL_DESCRIPTIONS.get(sig, "")
+        print(f"    - {sig}: weight={w} -> {desc}", flush=True)
+    print("  - Numeric fields: latest_price, ma20, ma50, ma200, rsi", flush=True)
+    print("", flush=True)
+
 
 def check_trend_breakout(symbol: str):
     try:
@@ -201,6 +216,9 @@ def print_signals_one_line(row):
 # Main
 # -----------------------------
 if __name__ == "__main__":
+    # Print rules summary before running
+    print_rules_summary()
+
     # Require tickers.yml to exist and be valid; abort on any error to avoid
     # running with an unintended default set.
     import sys, os
