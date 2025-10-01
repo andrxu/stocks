@@ -1,6 +1,7 @@
 import yfinance as yf
 import pandas as pd
 from colorama import Fore, Style, init
+import re
 
 # Initialize colorama
 init(autoreset=True)
@@ -228,6 +229,120 @@ def print_signals_one_line(row):
         f", P/E: {format_metric(row.get('pe'), 2)}"
     ) + Style.RESET_ALL, flush=True)
 
+
+def _bool_short(v):
+    return 'Y' if v else 'N'
+
+
+def print_table(rows):
+    """Print rows in a vertically-aligned table for easier reading."""
+    # Define columns and how to extract/format each field
+    headers = [
+        'Symbol', 'Score', 'Ready', 'AboveMA', 'Vol', 'RSI_OK', 'MA50Up',
+        'Breakout', 'Early', 'Golden', 'Price', 'MA20', 'MA50', 'MA200', 'RSI', 'P/E'
+    ]
+
+    # ANSI escape sequence stripper to compute visible lengths for alignment
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+
+    def visible_len(s: str):
+        return len(ansi_re.sub('', str(s)))
+
+    def pad_cell(s: str, width: int, align_right: bool = False):
+        s = str(s)
+        v = visible_len(s)
+        if v >= width:
+            return s
+        pad = ' ' * (width - v)
+        return (pad + s) if align_right else (s + pad)
+
+    # Helper to pick a score color consistent with one-line output
+    def score_color(score):
+        if not isinstance(score, int):
+            return Style.RESET_ALL
+        if score >= 80:
+            return Fore.GREEN
+        elif score >= 60:
+            return Fore.YELLOW
+        elif score >= 40:
+            return Fore.CYAN
+        else:
+            return Fore.WHITE
+
+    table_rows = []
+    for r in rows:
+        # Ensure keys exist and format numbers
+        score = r.get('score')
+        score_raw = str(score) if isinstance(score, int) else 'N/A'
+        # Color the score cell according to ranges
+        sc_color = score_color(score)
+        score_s = sc_color + score_raw + Style.RESET_ALL if score_raw != 'N/A' else 'N/A'
+
+        # Color boolean flags: Y (green), N (white)
+        def bool_cell(val):
+            short = _bool_short(val)
+            if short == 'Y':
+                return Fore.GREEN + 'Y' + Style.RESET_ALL
+            else:
+                return Fore.WHITE + 'N' + Style.RESET_ALL
+
+        ready = bool_cell(r.get('ready_momentum', False))
+        above = bool_cell(r.get('above_mas', False))
+        vol = bool_cell(r.get('volume_confirm', False))
+        rsi_ok = bool_cell(r.get('rsi_ok', False))
+        ma50up = bool_cell(r.get('ma50_trending_up', False))
+        breakout = bool_cell(r.get('breakout', False))
+        early = bool_cell(r.get('early_momentum', False))
+        golden = bool_cell(r.get('golden_cross', False))
+
+        price = format_metric(r.get('latest_price'))
+        ma20 = format_metric(r.get('ma20'))
+        ma50 = format_metric(r.get('ma50'))
+        ma200 = format_metric(r.get('ma200'))
+        rsi = format_metric(r.get('rsi'))
+        pe = format_metric(r.get('pe'))
+
+        table_rows.append([
+            str(r.get('symbol', '')),
+            score_s,
+            ready,
+            above,
+            vol,
+            rsi_ok,
+            ma50up,
+            breakout,
+            early,
+            golden,
+            price,
+            ma20,
+            ma50,
+            ma200,
+            rsi,
+            pe,
+        ])
+
+    # Compute column widths
+    # Compute column widths using visible lengths (strip ANSI codes)
+    all_for_width = [headers] + [[ansi_re.sub('', c) for c in row] for row in table_rows]
+    cols = list(zip(*all_for_width)) if table_rows else [headers]
+    widths = [max(len(str(cell)) for cell in col) for col in cols]
+
+    # Print header
+    header_line = '  '.join(pad_cell(h, w, align_right=False) for h, w in zip(headers, widths))
+    print(header_line)
+    print('-' * visible_len(header_line))
+
+    # Print rows with alignment: left for symbol, right for numeric-ish
+    for tr in table_rows:
+        pieces = []
+        for i, cell in enumerate(tr):
+            # Determine alignment: symbol left, others right
+            if i == 0:
+                pieces.append(pad_cell(cell, widths[i], align_right=False))
+            else:
+                pieces.append(pad_cell(cell, widths[i], align_right=True))
+        print('  '.join(pieces), flush=True)
+
 # -----------------------------
 # Main
 # -----------------------------
@@ -274,6 +389,6 @@ if __name__ == "__main__":
         return (-(s if isinstance(s, int) else -1), r.get('symbol', ''))
 
     all_rows_sorted = sorted(all_rows, key=sort_key)
-    for row in all_rows_sorted:
-        print_signals_one_line(row)
+    # Print a vertically-aligned table for easier reading
+    print_table(all_rows_sorted)
 
