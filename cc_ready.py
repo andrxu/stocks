@@ -34,12 +34,14 @@ def scan_covered_calls(symbols, expiries_days=[7, 14], min_premium_percent=0.5, 
             stock = yf.Ticker(sym)
             hist = stock.history(period="1mo")
             if hist.empty or len(hist) < 10:
+                print (f"Skipping {sym}: insufficient historical data")
                 continue
 
             latest = hist.iloc[-1]
 
             recent_return = (latest["Close"] - hist["Close"].iloc[0]) / hist["Close"].iloc[0]
             if recent_return < min_recent_return:
+                print(f"Skipping {sym}: recent return {recent_return:.2%} below threshold {min_recent_return:.2%}")
                 continue
 
             # RSI 14
@@ -58,9 +60,11 @@ def scan_covered_calls(symbols, expiries_days=[7, 14], min_premium_percent=0.5, 
             momentum_slowing = recent_slope < 0.02
 
             if not (overbought and momentum_slowing):
+                print(f"Skipping {sym}: overbought={overbought}, momentum_slowing={momentum_slowing}")
                 continue
 
             if not stock.options:
+                print(f"Skipping {sym}: no options data")   
                 continue
 
             for d in expiries_days:
@@ -100,7 +104,7 @@ def scan_covered_calls(symbols, expiries_days=[7, 14], min_premium_percent=0.5, 
                 elif best_call['premium_percent'] >= 0.7:
                     color = "yellow"
                 else:
-                    color = "red"
+                    color = "white"
 
                 results.append({
                     "symbol": sym,
@@ -139,11 +143,35 @@ def scan_covered_calls(symbols, expiries_days=[7, 14], min_premium_percent=0.5, 
 # Run scanner
 # -----------------------------
 if __name__ == "__main__":
-    tickers = [
-        "AAPL", "MSFT", "TSLA", "NVDA", "AMZN", "GOOGL", "META", "NFLX","AVGO", "CRSP",
-               "INTC", "AMD", "PYPL", "ADBE", "CRM", "ORCL", "SOFI", "UBER",
-               "HOOD", "GRAB", "JPM", "V", "CRWD", "TSM", "SNOW",  "QQQ", "PLTR"
-    ]
+    # Print a short description of what this script does
+    print("Covered-call scanner")
+    print("Scans tickers for potential covered-call candidates based on recent returns, RSI, IV and option premium metrics.")
+    print("Selection rule: consider tickers that have risen by at least the recent return threshold, currently requiring recent_return >= min_recent_return;")
+    print("the ticker must have RSI > 65 (overbought) and momentum is slowing (recent slope < 0.02), and have option chains available.")
+    print("We then look for OTM calls with sufficient implied volatility and premium percent to rank candidates by premium percent.")
+    print("")
+
+    # Load tickers from tickers.yml
+    import os, sys
+    try:
+        import yaml
+    except Exception:
+        print("Missing dependency: PyYAML is required to load tickers.yml. Install with: pip install PyYAML")
+        sys.exit(2)
+
+    yml_path = os.path.join(os.path.dirname(__file__), 'tickers.yml')
+    if not os.path.exists(yml_path):
+        print(f"Missing configuration file: {yml_path}")
+        sys.exit(2)
+
+    with open(yml_path, 'r') as f:
+        data = yaml.safe_load(f)
+
+    if not (isinstance(data, dict) and 'tickers' in data and isinstance(data['tickers'], list)):
+        print('Invalid tickers.yml: expected a mapping with a "tickers" list')
+        sys.exit(2)
+
+    tickers = [str(x).strip() for x in data['tickers'] if x is not None and str(x).strip()]
 
     df = scan_covered_calls(
         tickers, expiries_days=[7, 14],
