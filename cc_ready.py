@@ -29,6 +29,43 @@ def make_tz_naive(ts):
 def scan_covered_calls(symbols, expiries_days=[7, 14], min_premium_percent=0.5, max_delta=0.3, min_iv=0.2, min_recent_return=0.05):
     results = []
 
+    def compute_robust_recent_return(series, window_days=20, subperiods=5):
+        """Compute a more robust recent return measure.
+
+        Approach:
+        - Use the last `window_days` of closing prices.
+        - Split into `subperiods` equal segments, compute segment returns.
+        - Return the median of segment returns (robust to spikes).
+        - If insufficient data, fall back to a trimmed mean of available returns.
+        """
+        if len(series) < 2:
+            return 0.0
+        segment_len = max(1, int(window_days / subperiods))
+        closes = series[-window_days:]
+        # compute returns for segments: from segment start to segment end
+        seg_returns = []
+        for i in range(0, len(closes), segment_len):
+            start = closes.iloc[i]
+            end = closes.iloc[min(i + segment_len - 1, len(closes)-1)]
+            if start and start != 0:
+                seg_returns.append((end - start) / start)
+        if not seg_returns:
+            return (series.iloc[-1] - series.iloc[0]) / series.iloc[0]
+        try:
+            med = float(pd.Series(seg_returns).median())
+            return med
+        except Exception:
+            # fallback to average excluding top/bottom 10% (trimmed mean)
+            sr = sorted(seg_returns)
+            n = len(sr)
+            if n <= 2:
+                return sum(sr) / n
+            lo = int(n * 0.1)
+            hi = n - lo
+            trimmed = sr[lo:hi] if hi > lo else sr
+            return sum(trimmed) / len(trimmed)
+
+
     for sym in symbols:
         try:
             stock = yf.Ticker(sym)
@@ -39,7 +76,8 @@ def scan_covered_calls(symbols, expiries_days=[7, 14], min_premium_percent=0.5, 
 
             latest = hist.iloc[-1]
 
-            recent_return = (latest["Close"] - hist["Close"].iloc[0]) / hist["Close"].iloc[0]
+            # Use a robust recent return measure to avoid single-day spikes
+            recent_return = compute_robust_recent_return(hist['Close'], window_days=20, subperiods=5)
             if recent_return < min_recent_return:
                 print(f"Skipping {sym}: recent return {recent_return:.2%} below threshold {min_recent_return:.2%}")
                 continue
