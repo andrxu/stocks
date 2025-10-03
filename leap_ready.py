@@ -189,6 +189,10 @@ def screen_stocks(symbols):
             continue
 
         tech_result = check_leap_candidate(sym, vix_ok)
+        # If technical check returned an error, report and skip
+        if 'error' in tech_result:
+            print(Fore.RED + f"{sym}: {tech_result['error']}")
+            continue
         fundamentals = add_fundamentals(sym)
         tech_result.update(fundamentals)
         tech_result["ready_for_leap"] = tech_result["ready_technicals"] and fundamentals["fundamentals_ok"]
@@ -203,46 +207,175 @@ def screen_stocks(symbols):
 # Colored Output
 # -----------------------------
 def print_colored_results(df: pd.DataFrame):
+    # Build rows and compute visible widths while preserving ANSI color codes
+    import re
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+
+    def visible_len(s: str) -> int:
+        return len(ansi_re.sub('', str(s)))
+
+    def pad(s: str, width: int, right: bool = True) -> str:
+        s = str(s)
+        v = visible_len(s)
+        if v >= width:
+            return s
+        pad_str = ' ' * (width - v)
+        return (pad_str + s) if right else (s + pad_str)
+
+    rows = []
     for _, row in df.iterrows():
         if "error" in row:
-            print(Fore.RED + f"{row['symbol']}: ERROR - {row['error']}")
+            rows.append({"symbol": row.get('symbol', 'N/A'), "error": f"ERROR - {row['error']}"})
             continue
 
-        color = Fore.GREEN if row["ready_for_leap"] else Fore.YELLOW if row["ready_technicals"] else Fore.WHITE
+        color = Fore.GREEN if row["ready_for_leap"] else Fore.YELLOW if row.get("ready_technicals") else Fore.WHITE
 
-        fundamentals_summary = (
-            f"PE: {row.get('pe_ratio', 'N/A')}, "
-            f"RevGr: {row.get('revenue_growth', 'N/A')}, "
-            f"Margin: {row.get('profit_margin', 'N/A')}, "
-            f"D/E: {row.get('debt_to_equity', 'N/A')}, "
-            f"Cap: {row.get('market_cap', 'N/A')}"
-        )
+        # Reuse the same formatting helpers
+        def fmt_num(v, decimals=2):
+            try:
+                if v is None:
+                    return 'N/A'
+                return f"{float(v):.{decimals}f}"
+            except Exception:
+                return 'N/A'
 
-        option_summary = (
-            f"Expiry: {row.get('expiry', 'N/A')}, "
-            f"Strike: {row.get('strike', 'N/A')}, "
-            f"Premium: {row.get('premium', 'N/A')} ({row.get('percent', 'N/A')}%), "
-            f"/day: {row.get('per_day', 'N/A')}, "
-            f"IV: {row.get('iv', 'N/A')}, "
-            f"Delta: {row.get('delta', 'N/A')}, "
-            f"Return: {row.get('expected_return', 'N/A')}%"
-        )
+        def fmt_percent(v, decimals=3):
+            try:
+                if v is None:
+                    return 'N/A'
+                return f"{float(v) * 100:.{decimals}f}%"
+            except Exception:
+                return 'N/A'
 
-        print(color + (
-            f"{row['symbol']} | Price: {row.get('latest_price', 'N/A')} | "
-            f"Ready: {row['ready_for_leap']} | {option_summary} | RSI: {row.get('rsi', 'N/A')} | "
-            + fundamentals_summary + Style.RESET_ALL
-        ))
+        def fmt_cap(v):
+            try:
+                if v is None:
+                    return 'N/A'
+                return f"{int(v):,}"
+            except Exception:
+                return 'N/A'
+
+        row_data = {
+            "symbol": row.get('symbol', 'N/A'),
+            "price": fmt_num(row.get('latest_price')),
+            "ready": 'Y' if row.get('ready_for_leap') else 'N',
+            "expiry": row.get('expiry', 'N/A'),
+            "strike": fmt_num(row.get('strike')),
+            "premium": fmt_num(row.get('premium')),
+            "percent": fmt_num(row.get('percent')),
+            "/day": fmt_num(row.get('per_day')),
+            "iv": fmt_num(row.get('iv')),
+            "delta": row.get('delta', 'N/A'),
+            "return": fmt_num(row.get('expected_return')) + '%',
+            "rsi": fmt_num(row.get('rsi')),
+            "pe": fmt_num(row.get('pe_ratio')),
+            "revgr": fmt_percent(row.get('revenue_growth')),
+            "margin": fmt_num(row.get('profit_margin')),
+            "de": fmt_num(row.get('debt_to_equity')),
+            "cap": fmt_cap(row.get('market_cap')),
+            "color": color
+        }
+        rows.append(row_data)
+
+    if not rows:
+        print("No results to show.")
+        return
+
+    headers = ["Symbol", "Price", "Ready", "Expiry", "Strike", "Premium", "%", "/day", "IV", "Delta", "Return", "RSI", "PE", "RevGr", "Margin", "D/E", "Cap"]
+
+    # Compute visible widths
+    cols = {h: [] for h in headers}
+    for r in rows:
+        # Skip error-only rows for column width calculation
+        if 'error' in r:
+            continue
+        cols['Symbol'].append(r.get('symbol', 'N/A'))
+        cols['Price'].append(r.get('price', 'N/A'))
+        cols['Ready'].append(r.get('ready', 'N'))
+        cols['Expiry'].append(r.get('expiry', 'N/A'))
+        cols['Strike'].append(r.get('strike', 'N/A'))
+        cols['Premium'].append(r.get('premium', 'N/A'))
+        cols['%'].append(r.get('percent', 'N/A'))
+        cols['/day'].append(r.get('/day', 'N/A'))
+        cols['IV'].append(r.get('iv', 'N/A'))
+        cols['Delta'].append(r.get('delta', 'N/A'))
+        cols['Return'].append(r.get('return', 'N/A'))
+        cols['RSI'].append(r.get('rsi', 'N/A'))
+        cols['PE'].append(r.get('pe', 'N/A'))
+        cols['RevGr'].append(r.get('revgr', 'N/A'))
+        cols['Margin'].append(r.get('margin', 'N/A'))
+        cols['D/E'].append(r.get('de', 'N/A'))
+        cols['Cap'].append(r.get('cap', 'N/A'))
+
+    widths = {}
+    for h in headers:
+        sample = [h] + cols[h]
+        widths[h] = max(visible_len(str(x)) for x in sample)
+
+    # Print header (right-align numeric headers to match column alignment)
+    right_align = set(["Price", "Ready", "Strike", "Premium", "%", "/day", "IV", "Delta", "Return", "RSI", "PE", "RevGr", "Margin", "D/E", "Cap"])
+    header_line = '  '.join((h.rjust(widths[h]) if h in right_align else h.ljust(widths[h])) for h in headers)
+    print(header_line)
+    print('-' * visible_len(header_line))
+
+    # Print rows with color per row
+    for r in rows:
+        if 'error' in r:
+            print(Fore.RED + f"{r['symbol']}: {r['error']}")
+            continue
+        color = r['color']
+        parts = [
+            r['symbol'].ljust(widths['Symbol']),
+            r['price'].rjust(widths['Price']),
+            r['ready'].center(widths['Ready']),
+            str(r['expiry']).ljust(widths['Expiry']),
+            r['strike'].rjust(widths['Strike']),
+            r['premium'].rjust(widths['Premium']),
+            r['percent'].rjust(widths['%']),
+            r['/day'].rjust(widths['/day']),
+            r['iv'].rjust(widths['IV']),
+            str(r['delta']).rjust(widths['Delta']),
+            r['return'].rjust(widths['Return']),
+            r['rsi'].rjust(widths['RSI']),
+            r['pe'].rjust(widths['PE']),
+            r['revgr'].rjust(widths['RevGr']),
+            r['margin'].rjust(widths['Margin']),
+            r['de'].rjust(widths['D/E']),
+            r['cap'].rjust(widths['Cap']),
+        ]
+        print(color + '  '.join(parts) + Style.RESET_ALL)
 
 # -----------------------------
 # Main
 # -----------------------------
 if __name__ == "__main__":
-    tickers = [
-        "AAPL", "MSFT", "TSLA", "NVDA", "AMZN", "GOOGL", "META", "NFLX", "AVGO", "CRSP", "GS",
-        "INTC", "AMD", "PYPL", "ADBE", "CRM", "ORCL", "SOFI", "UBER",
-        "HOOD", "GRAB", "JPM", "V", "CRWD", "TSM", "SNOW", "QQQ", "PLTR"
-    ]
+    # Short description of purpose and rules
+    print("LEAP readiness scanner")
+    print("Goal: identify long-term LEAP candidates that combine healthy fundamentals with a favorable long-term technical setup and reasonable option metrics.")
+    print("Rules summary: positive long-term trend (MA50>MA200), price above key MAs, reasonable RSI (<85), timing via pullback to MA50 or pullback from recent highs, and fundamental filters: PE not excessive, positive rev growth, margin >= 10%, D/E reasonable, market cap >= $1B.")
+    print("")
+
+    # Load tickers from tickers.yml (required)
+    import os, sys
+    try:
+        import yaml
+    except Exception:
+        print("Missing dependency: PyYAML is required to load tickers.yml. Install with: pip install PyYAML")
+        sys.exit(2)
+
+    yml_path = os.path.join(os.path.dirname(__file__), 'tickers.yml')
+    if not os.path.exists(yml_path):
+        print(f"Missing configuration file: {yml_path}")
+        sys.exit(2)
+
+    with open(yml_path, 'r') as f:
+        data = yaml.safe_load(f)
+
+    if not (isinstance(data, dict) and 'tickers' in data and isinstance(data['tickers'], list)):
+        print('Invalid tickers.yml: expected a mapping with a "tickers" list')
+        sys.exit(2)
+
+    tickers = [str(x).strip() for x in data['tickers'] if x is not None and str(x).strip()]
 
     df, latest_vix = screen_stocks(sorted(tickers))
     print_colored_results(df)
