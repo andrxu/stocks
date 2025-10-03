@@ -2,8 +2,13 @@ import yfinance as yf
 import pandas as pd
 from colorama import Fore, Style, init
 from datetime import datetime, timedelta
+from math import log, sqrt, exp, erf
 
 init(autoreset=True)
+
+# IV gating threshold (only mark ready when option IV is <= this)
+# IV_THRESHOLD is expressed as a percentage (e.g., 40.0 means 40%)
+IV_THRESHOLD = 40.0
 
 # -----------------------------
 # Technical Analysis (Long-term + Timing)
@@ -39,32 +44,24 @@ def check_leap_candidate(symbol: str, vix_ok: bool):
         return {"symbol": symbol, "error": "Not enough history"}
 
     latest = df.iloc[-1]
-    prev = df.iloc[-2]
 
     # Long-term trend filters
-    golden_cross = (prev["MA50"] < prev["MA200"]) and (latest["MA50"] >= latest["MA200"])
     long_trend_up = latest["MA50"] > latest["MA200"]
-    above_mas = latest["Close"] > latest["MA50"] and latest["Close"] > latest["MA200"]
-    volume_ok = latest["Volume"] > latest["Vol50"]
-    rsi_ok = latest["RSI"] < 85  # avoid extreme overbought
+    rsi_ok = latest["RSI"] <= 40  # avoid extreme overbought
 
-    # Timing / entry filters
-    pullback_to_ma50 = latest["Close"] <= latest["MA50"] * 1.03  # within 3% above MA50
-    pullback_from_recent_high = latest["Close"] <= df["Close"].rolling(50).max().iloc[-1] * 0.9
-    timing_ok = pullback_to_ma50 or pullback_from_recent_high
+    # # Timing / entry filters
+    # pullback_to_ma50 = latest["Close"] <= latest["MA50"] * 1.03  # within 3% above MA50
+    # pullback_from_recent_high = latest["Close"] <= df["Close"].rolling(50).max().iloc[-1] * 0.9
+    # timing_ok = pullback_to_ma50 or pullback_from_recent_high
 
-    ready_technicals = all([above_mas, volume_ok, rsi_ok, vix_ok, long_trend_up]) and timing_ok
+    ready_technicals = all([rsi_ok, vix_ok, long_trend_up]) ## and timing_ok
 
     return {
         "symbol": symbol,
         "ready_technicals": ready_technicals,
-        "golden_cross_today": golden_cross,
-        "above_mas": above_mas,
-        "volume_ok": volume_ok,
         "rsi_ok": rsi_ok,
         "long_trend_up": long_trend_up,
         "vix_ok": vix_ok,
-        "timing_ok": timing_ok,
         "latest_price": round(float(latest["Close"]), 2),
         "ma50": round(float(latest["MA50"]), 2),
         "ma200": round(float(latest["MA200"]), 2),
@@ -148,10 +145,79 @@ def get_leap_option_metrics(symbol: str, expiry: str):
         percent = 100 * premium / price
         days_to_expiry = (datetime.strptime(expiry, "%Y-%m-%d") - datetime.today()).days
         per_day = premium / days_to_expiry if days_to_expiry > 0 else 0
-        iv = atm_call.get("impliedVolatility", 0)
+        # yfinance usually returns impliedVolatility as a decimal (e.g., 0.20 for 20%).
+        # But some rows contain tiny placeholder values (1e-05) or NaNs when market data is sparse.
+        # We'll try yfinance first, but fall back to solving for implied vol from the market premium
+        # using a lightweight Black-Scholes bisection solver when the returned IV is implausibly small.
+        raw_iv = atm_call.get("impliedVolatility", None)
+        iv = None
+        if raw_iv is not None:
+            try:
+                iv = float(raw_iv) * 100.0
+            except Exception:
+                iv = None
+
+        # Helper: normal CDF
+        def _norm_cdf(x):
+            return 0.5 * (1.0 + erf(x / sqrt(2.0)))
+
+        # Black-Scholes call price
+        def _bs_call_price(S, K, T, r, sigma):
+            if T <= 0 or sigma <= 0:
+                return max(0.0, S - K * exp(-r * T))
+            d1 = (log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrt(T))
+            d2 = d1 - sigma * sqrt(T)
+            return S * _norm_cdf(d1) - K * exp(-r * T) * _norm_cdf(d2)
+
+        # Implied vol via bisection
+        def _implied_vol_from_price(mkt_price, S, K, T, r):
+            if mkt_price <= 0 or T <= 0:
+                return None
+            lo, hi = 1e-6, 5.0
+            p_lo = _bs_call_price(S, K, T, r, lo)
+            p_hi = _bs_call_price(S, K, T, r, hi)
+            # If market price is outside [p_lo, p_hi], bisection will fail; guard against that
+            if mkt_price < p_lo or mkt_price > p_hi:
+                # try expanding hi
+                hi = 10.0
+                p_hi = _bs_call_price(S, K, T, r, hi)
+                if mkt_price > p_hi:
+                    return None
+            for _ in range(80):
+                mid = 0.5 * (lo + hi)
+                p_mid = _bs_call_price(S, K, T, r, mid)
+                if abs(p_mid - mkt_price) < 1e-4:
+                    return mid
+                if p_mid > mkt_price:
+                    hi = mid
+                else:
+                    lo = mid
+            return 0.5 * (lo + hi)
         delta = atm_call.get("delta", "N/A")
         expected_return = 100 * (strike - price + premium) / premium if premium > 0 else 0
 
+        # days to expiry in years for BS solver
+        T_years = max(days_to_expiry / 365.0, 0.0)
+
+        # If yfinance returned an implausibly small IV (or none), attempt to compute it from price
+        computed_iv = None
+        try:
+            if (iv is None) or (iv < 0.5):
+                # require a sensible premium to compute implied vol
+                if premium and premium > 0.01 and T_years > 0:
+                    # use a small risk-free rate guess (3%)
+                    r = 0.03
+                    vol_frac = _implied_vol_from_price(float(premium), float(price), float(strike), T_years, r)
+                    if vol_frac is not None:
+                        computed_iv = float(vol_frac) * 100.0
+        except Exception:
+            computed_iv = None
+
+        if computed_iv is not None and (iv is None or computed_iv > iv):
+            iv = computed_iv
+
+        if iv is None:
+            iv = 0.0
         return {
             "expiry": expiry,
             "strike": strike,
@@ -195,10 +261,54 @@ def screen_stocks(symbols):
             continue
         fundamentals = add_fundamentals(sym)
         tech_result.update(fundamentals)
+        # preliminary readiness based on technicals + fundamentals (final readiness will include IV)
         tech_result["ready_for_leap"] = tech_result["ready_technicals"] and fundamentals["fundamentals_ok"]
+        # initialize notes list to collect skip/reject reasons
+        tech_result.setdefault('notes', [])
 
         option_metrics = get_leap_option_metrics(sym, selected_expiry)
         tech_result.update(option_metrics)
+
+        # Enforce IV gating: only ready if option IV is available and <= IV_THRESHOLD
+        iv_val = option_metrics.get('iv') if isinstance(option_metrics, dict) else None
+        iv_ok = False
+        if iv_val is not None:
+            try:
+                iv_ok = float(iv_val) <= IV_THRESHOLD
+            except Exception:
+                iv_ok = False
+
+        tech_result['iv_ok'] = iv_ok
+        # collect reasons
+        if not tech_result.get('ready_technicals'):
+            # which technical checks failed? include booleans available from check_leap_candidate
+            failed = []
+            if not tech_result.get('long_trend_up', True):
+                failed.append('trend_down')
+            if not tech_result.get('rsi_ok', True):
+                failed.append('rsi_bad')
+            if not tech_result.get('vix_ok', True):
+                failed.append('vix_high')
+            tech_result['notes'].append('tech:' + ','.join(failed) if failed else 'tech:fail')
+        if not fundamentals.get('fundamentals_ok'):
+            # list basic fundamental failures
+            ffail = []
+            if fundamentals.get('pe_ratio') is not None and fundamentals.get('pe_ratio') > 50:
+                ffail.append('pe_high')
+            if fundamentals.get('revenue_growth') is not None and fundamentals.get('revenue_growth') < 0:
+                ffail.append('rev_down')
+            if fundamentals.get('profit_margin') is not None and fundamentals.get('profit_margin') < 0.1:
+                ffail.append('low_margin')
+            if fundamentals.get('debt_to_equity') is not None and fundamentals.get('debt_to_equity') > 200:
+                ffail.append('de_high')
+            if fundamentals.get('market_cap') is not None and fundamentals.get('market_cap') < 1e9:
+                ffail.append('small_cap')
+            tech_result['notes'].append('fund:' + ','.join(ffail) if ffail else 'fund:fail')
+        if not iv_ok:
+            tech_result['notes'].append('iv:high_or_missing')
+
+        # final readiness requires iv_ok as well
+        tech_result['ready_for_leap'] = bool(tech_result.get('ready_technicals') and fundamentals.get('fundamentals_ok') and iv_ok)
         results.append(tech_result)
 
     return pd.DataFrame(results), latest_vix
@@ -255,6 +365,9 @@ def print_colored_results(df: pd.DataFrame):
             except Exception:
                 return 'N/A'
 
+        # Build human-readable notes string
+        notes_str = ' ; '.join([str(x) for x in (row.get('notes') or [])]) or ''
+
         row_data = {
             "symbol": row.get('symbol', 'N/A'),
             "price": fmt_num(row.get('latest_price')),
@@ -273,6 +386,7 @@ def print_colored_results(df: pd.DataFrame):
             "margin": fmt_num(row.get('profit_margin')),
             "de": fmt_num(row.get('debt_to_equity')),
             "cap": fmt_cap(row.get('market_cap')),
+            "notes": notes_str,
             "color": color
         }
         rows.append(row_data)
@@ -281,7 +395,7 @@ def print_colored_results(df: pd.DataFrame):
         print("No results to show.")
         return
 
-    headers = ["Symbol", "Price", "Ready", "Expiry", "Strike", "Premium", "%", "/day", "IV", "Delta", "Return", "RSI", "PE", "RevGr", "Margin", "D/E", "Cap"]
+    headers = ["Symbol", "Price", "Ready", "Expiry", "Strike", "Premium", "%", "/day", "IV", "Delta", "Return", "RSI", "PE", "RevGr", "Margin", "D/E", "Cap", "Notes"]
 
     # Compute visible widths
     cols = {h: [] for h in headers}
@@ -305,7 +419,8 @@ def print_colored_results(df: pd.DataFrame):
         cols['RevGr'].append(r.get('revgr', 'N/A'))
         cols['Margin'].append(r.get('margin', 'N/A'))
         cols['D/E'].append(r.get('de', 'N/A'))
-        cols['Cap'].append(r.get('cap', 'N/A'))
+    cols['Cap'].append(r.get('cap', 'N/A'))
+    cols['Notes'].append(r.get('notes', ''))
 
     widths = {}
     for h in headers:
@@ -342,6 +457,7 @@ def print_colored_results(df: pd.DataFrame):
             r['margin'].rjust(widths['Margin']),
             r['de'].rjust(widths['D/E']),
             r['cap'].rjust(widths['Cap']),
+            r['notes'].ljust(widths['Notes']),
         ]
         print(color + '  '.join(parts) + Style.RESET_ALL)
 
