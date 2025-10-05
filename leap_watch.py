@@ -38,6 +38,15 @@ for t in cfg['tickers']:
     if sym:
         options_to_track[sym] = []
 
+# Load optional config parameters with sensible defaults
+ivp_cutoff = float(cfg.get('ivp_cutoff', 60.0)) if isinstance(cfg, dict) else 60.0
+# Default max absolute IV to 80% to avoid recommending extremely expensive/high-IV contracts by default
+max_abs_iv = float(cfg.get('max_abs_iv', 80.0)) if isinstance(cfg, dict) else 80.0
+top_n = int(cfg.get('top_n', 30)) if isinstance(cfg, dict) else 30
+min_leap_days = int(cfg.get('min_leap_days', 300)) if isinstance(cfg, dict) else 300
+
+print(f"Using config: ivp_cutoff={ivp_cutoff}, max_abs_iv={max_abs_iv}, top_n={top_n}, min_leap_days={min_leap_days}")
+
 # -----------------------------
 # Color output function
 # -----------------------------
@@ -165,7 +174,6 @@ for symbol in sorted(options_to_track.keys()):
 
     # iterate unique expiries only (avoid duplicates when e12 == e16)
     # skip expiries that are too close (not LEAP-ish)
-    min_leap_days = 300
     unique_expiries = sorted(set([e for e in (e12, e16) if e]))
     for expiry in unique_expiries:
         try:
@@ -339,12 +347,14 @@ def _score_candidate(c):
     score += min(50.0, c.get('last', 0.0)) / 10.0
     return score
 
-def print_best_candidates(all_candidates, top_n=20, ivp_cutoff=60.0):
+def print_best_candidates(all_candidates, top_n=20, ivp_cutoff=60.0, max_abs_iv=999.0):
     if not all_candidates:
         print("No candidates collected.")
         return
     # filter out expensive ones by IVP (if IVP missing, keep)
     filtered = [c for c in all_candidates if (c.get('ivp') is None) or (c.get('ivp') < ivp_cutoff)]
+    # optionally filter out excessively high absolute IV
+    filtered = [c for c in filtered if (c.get('iv') is None) or (c.get('iv') <= max_abs_iv)]
     if not filtered:
         print("No candidates under IVP cutoff; relaxing filter to include all.")
         filtered = all_candidates
@@ -354,14 +364,16 @@ def print_best_candidates(all_candidates, top_n=20, ivp_cutoff=60.0):
     ranked = sorted(filtered, key=lambda x: x['_score'], reverse=True)
 
     print('\n=== Best options to consider (excluding expensive IVP >= {:.0f}%) ==='.format(ivp_cutoff))
-    print('Rank  Score  Symbol  Expiry       Strike  Last   IV    IVP   IVR   Liquid')
-    print('----  -----  ------  ----------   ------  -----  ----  -----  ----  ------')
+    print('Note: ranking favors liquidity and lower IVP; absolute IV may still be high.')
+    print('Rank  Score  Symbol  Expiry       Strike  Last   IV    IVP   IVR   HighIV  Liquid')
+    print('----  -----  ------  ----------   ------  -----  ----  -----  ----   -----  ------')
     for i, c in enumerate(ranked[:top_n], start=1):
         ivs = f"{c['iv']:.2f}%" if c.get('iv') is not None else 'N/A'
         ivp = f"{c['ivp']:.1f}%" if c.get('ivp') is not None else 'N/A'
         ivr = f"{c['ivr']:.1f}%" if c.get('ivr') is not None else 'N/A'
         liquid = 'Y' if c.get('liquid') else 'N'
-        print(f"{i:>3}   {c['_score']:.1f}   {c['symbol']:6}  {c['expiry']}  {c['strike']:6}  {c['last']:5.2f}  {ivs:6}  {ivp:5}  {ivr:5}  {liquid}")
+        high_iv = 'Y' if (c.get('iv') is not None and c['iv'] >= 60.0) else 'N'
+        print(f"{i:>3}   {c['_score']:.1f}   {c['symbol']:6}  {c['expiry']}  {c['strike']:6}  {c['last']:5.2f}  {ivs:6}  {ivp:5}  {ivr:5}   {high_iv:4}   {liquid}")
 
-print_best_candidates(BEST_CANDIDATES, top_n=30, ivp_cutoff=60.0)
+print_best_candidates(BEST_CANDIDATES, top_n=top_n, ivp_cutoff=ivp_cutoff, max_abs_iv=max_abs_iv)
 
