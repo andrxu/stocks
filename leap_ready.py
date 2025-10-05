@@ -493,5 +493,16 @@ if __name__ == "__main__":
 
     tickers = [str(x).strip() for x in data['tickers'] if x is not None and str(x).strip()]
 
+    # Allow optional configuration in tickers.yml to override defaults.
+    # Example: iv_threshold: 45.0  (percent)
+    if isinstance(data, dict):
+        iv_conf = data.get('iv_threshold') or data.get('ivThreshold')
+        try:
+            if iv_conf is not None:
+                IV_THRESHOLD = float(iv_conf)
+                print(f"Using IV threshold from tickers.yml: {IV_THRESHOLD}%")
+        except Exception:
+            print("Warning: invalid 'iv_threshold' in tickers.yml; using default")
+
     df, latest_vix = screen_stocks(sorted(tickers))
     print_colored_results(df)
