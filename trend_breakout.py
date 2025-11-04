@@ -95,13 +95,46 @@ def check_trend_breakout(symbol: str):
         rs = avg_gain / avg_loss
         df["RSI"] = 100 - (100 / (1 + rs))
 
-        df = df.dropna(subset=["MA20", "MA50", "MA200", "RSI", "Vol20"])
-        if df.empty:
-            # Not enough history: return sensible defaults instead of an error so callers
-            # (and the one-line printer) can continue processing tickers like CRWV.
+        # Keep track of how many days of raw data we received so we can report
+        # a helpful note when there's insufficient history for all indicators.
+        available_days = len(df)
+
+        df_clean = df.dropna(subset=["MA20", "MA50", "MA200", "RSI", "Vol20"])
+        if df_clean.empty:
+            # Not enough history: return a partial result instead of an error so
+            # callers (and the table printer) can still show something useful for
+            # new tickers. Try to fetch a recent quote/PE to populate minimal info.
+            last_price = "N/A"
+            try:
+                t = yf.Ticker(symbol)
+                hist5 = t.history(period="5d", interval="1d", prepost=False)
+                if not hist5.empty and 'Close' in hist5.columns:
+                    last_price = round(float(hist5['Close'].iloc[-1]), 2)
+                else:
+                    # Fallback: try fast_info if available
+                    fast = getattr(t, 'fast_info', None)
+                    if fast and isinstance(fast, dict) and fast.get('lastPrice') is not None:
+                        last_price = round(float(fast['lastPrice']), 2)
+            except Exception:
+                # best-effort only; leave last_price as 'N/A' on any error
+                last_price = "N/A"
+
+            # Try to obtain a P/E if available
+            pe_value = "N/A"
+            try:
+                t = yf.Ticker(symbol)
+                info = t.info if hasattr(t, 'info') else {}
+                pe = info.get('trailingPE') or info.get('forwardPE')
+                if pe is not None:
+                    pe_value = round(float(pe), 2)
+            except Exception:
+                pe_value = "N/A"
+
+            note = f"insufficient history ({available_days} days) - partial metrics"
             return {
                 "symbol": symbol,
                 "ready_momentum": False,
+                "score": None,
                 "above_mas": False,
                 "volume_confirm": False,
                 "rsi_ok": False,
@@ -109,11 +142,13 @@ def check_trend_breakout(symbol: str):
                 "breakout": False,
                 "early_momentum": False,
                 "golden_cross": False,
-                "latest_price": "N/A",
+                "latest_price": last_price,
                 "ma20": "N/A",
                 "ma50": "N/A",
                 "ma200": "N/A",
                 "rsi": "N/A",
+                "pe": pe_value,
+                "note": note,
             }
 
         latest = df.iloc[-1]
@@ -239,7 +274,7 @@ def print_table(rows):
     # Define columns and how to extract/format each field
     headers = [
         'Symbol', 'Score', 'Ready', 'AboveMA', 'Vol', 'RSI_OK', 'MA50Up',
-        'Breakout', 'Early', 'Golden', 'Price', 'MA20', 'MA50', 'MA200', 'RSI', 'P/E'
+        'Breakout', 'Early', 'Golden', 'Price', 'MA20', 'MA50', 'MA200', 'RSI', 'P/E', 'Note'
     ]
 
     # ANSI escape sequence stripper to compute visible lengths for alignment
@@ -268,6 +303,21 @@ def print_table(rows):
             return Fore.CYAN
         else:
             return Fore.WHITE
+
+    # If the terminal is narrow, printing a wide table will wrap lines and
+    # make output hard to read (and may appear as N/A rows). Fall back to a
+    # compact one-line summary per ticker when width is limited.
+    import shutil
+    term_width = shutil.get_terminal_size((120, 20)).columns
+    if term_width < 120:
+        # Compact mode: print one-line summaries for each row and return.
+        for r in rows:
+            # Avoid very long notes in compact mode
+            if 'note' in r and isinstance(r['note'], str) and len(r['note']) > 60:
+                r = dict(r)
+                r['note'] = r['note'][:57] + '...'
+            print_signals_one_line(r)
+        return
 
     table_rows = []
     for r in rows:
@@ -301,6 +351,7 @@ def print_table(rows):
         ma200 = format_metric(r.get('ma200'))
         rsi = format_metric(r.get('rsi'))
         pe = format_metric(r.get('pe'))
+        note = r.get('note', '')
 
         table_rows.append([
             str(r.get('symbol', '')),
@@ -319,6 +370,7 @@ def print_table(rows):
             ma200,
             rsi,
             pe,
+            note,
         ])
 
     # Compute column widths

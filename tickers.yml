@@ -8,6 +8,8 @@ tickers:
   - APP
   - ASTS
   - AVGO
+  - BE
+  - BMNR
   - CELH
   - COIN
   - COST
@@ -19,10 +21,11 @@ tickers:
   - CVNA
   - DDOG
   - ELF
+  - FBTC
   - GOOGL
   - GRAB
-  - GTLB
   - GS
+  - GTLB
   - HIMS
   - HOOD
   - INTC
@@ -31,11 +34,14 @@ tickers:
   - IYW
   - ISRG
   - JPM
+  - LAC
+  - MP
   - MELI
   - META
   - MRNA
   - MSFT
   - MSTR
+  - MU
   - NET
   - NFLX
   - NVDA
@@ -45,21 +51,22 @@ tickers:
   - PLTR
   - PYPL
   - QBTS
+  - QQQ
   - QUBT
+  - RGTI
   - SHOP
   - SMCI
-  - SOFI
+  - SMR
   - SNOW
+  - SOFI
   - TEM
   - TSM
   - TSLA
   - UBER
+  - USAR
   - UPST
   - V
   - VGT
   - VOO
   - WMT
-  - LAC
-  - MU
-  - BMNR
-  - QQQ
+  - CRCL
