@@ -45,6 +45,7 @@ tickers:
   - NET
   - NFLX
   - NVDA
+  - NKE
   - OKLO
   - ORCL
   - PINS
@@ -69,4 +70,3 @@ tickers:
   - VGT
   - VOO
   - WMT
-  - CRCL
